@@ -16,17 +16,16 @@ jobs:
         run: |
           echo "::set-output name=IMAGE_TAG::${{ github.run_number }}"
 
-      - name: Import secrets to envs
-        uses: Firenza/secrets-to-env@v1.1.0
-        with:
-          secrets: ${{ toJSON(secrets) }}
-
       - name: Replace tokens in src/MyHealth.Web/appsettings.json with env
         uses: cschleiden/replace-tokens@v1.1
         with:
           tokenPrefix: '__'
           tokenSuffix: '__'
           files: '["src/MyHealth.Web/appsettings.json"]'
+        env:
+          SQL_SERVER: ${{ secrets.SQL_SERVER }}
+          SQL_USERNAME: ${{ secrets.SQL_USERNAME }}
+          SQL_PASSWORD: ${{ secrets.SQL_PASSWORD }}
 
       # dotnet build
       # https://docs.microsoft.com/ja-jp/dotnet/architecture/devops-for-aspnet-developers/actions-build
@@ -104,6 +103,8 @@ jobs:
           tokenPrefix: '__'
           tokenSuffix: '__'
           files: '["mhc-aks.yaml"]'
+        env:
+          ACR: ${{ secrets.ACR }}
 
       # https://docs.microsoft.com/ja-jp/azure/developer/github/connect-from-azure?tabs=azure-portal%2Clinux
       - name: Login to Azure
