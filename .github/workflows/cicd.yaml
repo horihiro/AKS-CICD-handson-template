@@ -83,15 +83,8 @@ jobs:
           connection-string: "Server=tcp:${{ secrets.SQL_SERVER }},1433;Initial Catalog=${{ secrets.DatabaseName }};Persist Security Info=False;User ID=${{ secrets.SQL_USER }};Password=${{ secrets.SQL_PASSWORD }};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
           dacpac-package: './myhealthclinic.dacpac'
 
-      - id: setImageTag
-        run: |
-          echo "::set-output name=IMAGE_TAG::${{ needs.build.outputs.IMAGE_TAG }}"
-
-    outputs:
-      IMAGE_TAG: ${{ steps.setImageTag.outputs.IMAGE_TAG}}
-
   deploy-to-AKS:
-    needs: deploy-to-SQL
+    needs: [deploy-to-SQL, build]
     runs-on: ubuntu-18.04
     steps:
       - uses: actions/checkout@main
@@ -126,4 +119,4 @@ jobs:
             ./mhc-aks.yaml
       - name: Update image in AKS
         run: | 
-          kubectl set image deployments/mhc-front mhc-front=${{ secrets.ACR }}/myhealth.web:${{ needs.deploy-to-SQL.outputs.IMAGE_TAG}}
+          kubectl set image deployments/mhc-front mhc-front=${{ secrets.ACR }}/myhealth.web:${{ needs.build.outputs.IMAGE_TAG}}
