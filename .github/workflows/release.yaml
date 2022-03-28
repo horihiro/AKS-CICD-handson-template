@@ -1,0 +1,103 @@
+on:
+  workflow_run:
+    workflows: [build]
+    types: [completed]
+
+permissions:
+  id-token: write # for azure/login with OpenID Connect
+  contents: read
+
+jobs:
+  deploy-to-SQL:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@main
+
+      # https://docs.microsoft.com/ja-jp/azure/developer/github/connect-from-azure?tabs=azure-portal%2Clinux
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # https://docs.microsoft.com/ja-jp/azure/azure-sql/database/connect-github-actions-sql-db
+      - name: Apply Dacpac to Azure SQL server
+        uses: azure/sql-action@v1
+        with:
+          server-name: ${{ secrets.SQL_SERVER }}
+          connection-string: "Server=tcp:${{ secrets.SQL_SERVER }},1433;Initial Catalog=${{ secrets.DatabaseName }};Persist Security Info=False;User ID=${{ secrets.SQL_USER }};Password=${{ secrets.SQL_PASSWORD }};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
+          dacpac-package: './myhealthclinic.dacpac'
+
+  deploy-to-AKS:
+    needs: [deploy-to-SQL]
+    runs-on: ubuntu-18.04
+    steps:
+      - uses: actions/checkout@main
+
+      # Using data from the triggering workflow
+      # https://docs.github.com/ja/actions/using-workflows/events-that-trigger-workflows#using-data-from-the-triggering-workflow
+      - name: Download artifact
+        uses: actions/github-script@v5
+        with:
+          script: |
+            let allArtifacts = await github.rest.actions.listWorkflowRunArtifacts({
+               owner: context.repo.owner,
+               repo: context.repo.repo,
+               run_id: context.payload.workflow_run.id,
+            });
+            let matchArtifact = allArtifacts.data.artifacts.filter((artifact) => {
+              return artifact.name == "tag"
+            })[0];
+            let download = await github.rest.actions.downloadArtifact({
+               owner: context.repo.owner,
+               repo: context.repo.repo,
+               artifact_id: matchArtifact.id,
+               archive_format: 'zip',
+            });
+            let fs = require('fs');
+            fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/tag.zip`, Buffer.from(download.data));
+
+      - name: Unzip artifact
+        run: |
+          unzip tag.zip
+
+      - name: Load tag from artifact
+        uses: actions/github-script@v5
+        id: load-tag
+        with:
+          script: |
+            const fs = require('fs');
+            return Number(fs.readFileSync('./tag'));
+
+      - name: Replace tokens in mhc-aks.yaml with env
+        uses: cschleiden/replace-tokens@v1.1
+        with:
+          tokenPrefix: '__'
+          tokenSuffix: '__'
+          files: '["mhc-aks.yaml"]'
+        env:
+          ACR: ${{ secrets.ACR }}
+
+      # https://docs.microsoft.com/ja-jp/azure/developer/github/connect-from-azure?tabs=azure-portal%2Clinux
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # AKS
+      - name: Prepeare k8s context
+        uses: azure/aks-set-context@v2.0
+        with:
+          resource-group: ${{ secrets.RESOURCE_GROUP_NAME }}
+          cluster-name: ${{ secrets.AKS_CLUSTER_NAME }}
+      - name: Create Deployments & Services in AKS
+        uses: azure/k8s-deploy@v1
+        with:
+          manifests: |
+            ./mhc-aks.yaml
+      - name: Update image in AKS
+        run: | 
+          kubectl set image deployments/mhc-front mhc-front=${{ secrets.ACR }}/myhealth.web:${{ steps.load-tag.outputs.result }}
