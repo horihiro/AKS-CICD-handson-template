@@ -10,6 +10,10 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-18.04
+    env:
+      SQL_SERVER: ${{ secrets.SQL_SERVER }}
+      ACR: ${{ secrets.ACR }}
+
     steps:
       - uses: actions/checkout@main
 
@@ -20,7 +24,7 @@ jobs:
           tokenSuffix: '__'
           files: '["src/MyHealth.Web/appsettings.json"]'
         env:
-          SQL_SERVER: ${{ secrets.SQL_SERVER }}
+          SQL_SERVER: ${{ env.SQL_SERVER }}
           SQL_USER: ${{ secrets.SQL_USER }}
           SQL_PASSWORD: ${{ secrets.SQL_PASSWORD }}
 
@@ -47,12 +51,12 @@ jobs:
       - name: Build docker image, login to ACR and push image to ACR
         run: |
           # Build docker image
-          docker build . -t ${{ secrets.ACR }}/myhealth.web:$TAG -t ${{ secrets.ACR }}/myhealth.web:latest
+          docker build . -t ${{ env.ACR }}/myhealth.web:$TAG -t ${{ env.ACR }}/myhealth.web:latest
           # Login to ACR
           # https://github.com/Azure/acr/blob/main/docs/AAD-OAuth.md#authenticating-to-a-registry-with-azure-cli
-          az acr login -n ${{ secrets.ACR }}
+          az acr login -n ${{ env.ACR }}
           # Push image to ACR
-          docker push -a ${{ secrets.ACR }}/myhealth.web
+          docker push -a ${{ env.ACR }}/myhealth.web
         env:
           TAG: ${{ github.run_number }}
         working-directory: ./src/MyHealth.Web
